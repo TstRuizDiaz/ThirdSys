@@ -1,0 +1,45 @@
+# Ambiente virtual
+.venv/
+venv/
+env/
+
+# Cache e bytecode do Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Banco de dados — NÃO suba dados reais de colaboradores/clientes
+*.db
+*.sqlite
+*.sqlite3
+
+# Configurações locais / segredos
+.env
+config.local.json
+data/config.json
+data/session.json
+
+# Logs
+*.log
+log.txt
+
+# Build / distribuição (PyInstaller e afins)
+build/
+dist/
+*.spec
+*.egg-info/
+
+# Relatórios gerados — podem conter dados reais de colaboradores
+relatorio_*.pdf
+*.pdf
+
+# Scripts avulsos de instalação/migração pontual
+get-pip.py
+
+# Arquivos de IDE
+.vscode/
+.idea/
+
+# Sistema
+.DS_Store
+Thumbs.db
