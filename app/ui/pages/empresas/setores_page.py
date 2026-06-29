@@ -668,10 +668,11 @@ class EmpresasPage(QWidget):
     navegar = Signal(str)
     voltar  = Signal()
 
-    def __init__(self, setor_nome: str = "", empresas: list = None):
+    def __init__(self, setor_nome: str = "", empresas: list = None, user_role: str = "ADMINISTRATIVO"):
         super().__init__()
         self.setor_nome = setor_nome
         self.empresas = empresas or []
+        self.user_role = user_role
         self.setStyleSheet("background-color: #F0F4F8;")
         self._setup_ui()
 
@@ -704,6 +705,9 @@ class EmpresasPage(QWidget):
             QPushButton:hover { background-color: #15803D; }
         """)
         btn_nova.clicked.connect(lambda: self.navegar.emit("nova_empresa"))
+        # Criação de empresa é restrita a admin — regra do cliente: só
+        # admin pode editar/excluir/criar; demais perfis só consultam.
+        btn_nova.setVisible(_is_admin(self.user_role))
         header.addWidget(btn_nova)
         layout.addLayout(header)
 

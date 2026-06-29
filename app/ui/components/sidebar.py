@@ -177,6 +177,10 @@ class Sidebar(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
+        from app.core.permissions import eh_admin, menu_permitido
+        _admin = eh_admin(self.usuario)
+        _menu  = menu_permitido(self.usuario)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -203,6 +207,15 @@ class Sidebar(QWidget):
         logo_txt.addWidget(sub_app)
         h_layout.addLayout(logo_txt)
         h_layout.addStretch()
+
+        # Sino de notificações (vencimentos) — só aparece pra quem tem
+        # acesso à tela de Vencimentos (admin e tecnico; operador não).
+        if "vencimentos" in _menu:
+            from app.ui.components.sino_notificacoes import SinoNotificacoes
+            self.sino = SinoNotificacoes()
+            self.sino.navegar.connect(lambda chave: self.nav_item_clicked.emit(chave))
+            h_layout.addWidget(self.sino)
+
         layout.addWidget(header)
 
         # â”€â”€ Separador â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -211,14 +224,17 @@ class Sidebar(QWidget):
         # â”€â”€ Menu principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         layout.addWidget(self._secao_label("MENU PRINCIPAL"))
 
-        itens = [
+        # Ordem fixa de exibição — filtramos pelo que esse perfil pode ver
+        # (admin e tecnico veem praticamente tudo; operador só o básico +
+        # Portaria, que fica numa seção separada abaixo).
+        _todos_itens = [
             ("dashboard",     "fa5s.th-large",             "Dashboard"),
             ("empresas",      "fa5s.building",             "Empresas"),
             ("trabalhadores", "fa5s.hard-hat",             "Trabalhadores"),
-            ("documentos",    "fa5s.file-alt",             "Documentos"),
             ("vencimentos",   "fa5s.exclamation-triangle", "Vencimentos"),
             ("relatorios",    "fa5s.chart-bar",            "RelatÃ³rios"),
         ]
+        itens = [it for it in _todos_itens if it[0] in _menu]
         for chave, icone, texto in itens:
             layout.addWidget(self._criar_botao(chave, icone, texto))
 
@@ -265,7 +281,17 @@ class Sidebar(QWidget):
             nome_label.setMaximumWidth(150)
             info.addWidget(nome_label)
 
-            nivel = getattr(self.usuario, "nivel", "UsuÃ¡rio")
+            # CORREÇÃO: self.usuario é um dict (vem do login_api), e
+            # getattr(dict, "nivel", ...) nunca encontra nada em um dict —
+            # sempre cai no valor padrão. Por isso o cargo mostrado nunca
+            # batia com o perfil real do usuário logado.
+            perfil = (
+                self.usuario.get("perfil", "operador")
+                if isinstance(self.usuario, dict)
+                else getattr(self.usuario, "perfil", "operador")
+            )
+            nivel = {"admin": "Administrador", "tecnico": "Técnico",
+                     "operador": "Operador"}.get(perfil, perfil.capitalize())
             cargo_label = QLabel(nivel)
             cargo_label.setStyleSheet(
                 f"color: {COR_LOGO_SUB}; font-size: 10px; background: transparent;"

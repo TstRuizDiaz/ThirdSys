@@ -551,7 +551,7 @@ class AbaColaboradores(QWidget):
             try:
                 trabalhadores = (
                     session.query(Trabalhador)
-                    .options(joinedload(Trabalhador.empresa))
+                    .options(joinedload(Trabalhador.empresa), joinedload(Trabalhador.treinamentos))
                     .filter(Trabalhador.ativo == True)
                     .all()
                 )
@@ -566,11 +566,11 @@ class AbaColaboradores(QWidget):
                 emp_nome = t.empresa.razao_social if t.empresa else "Sem empresa"
                 empresas.add(emp_nome)
 
-                # ASO
-                if getattr(t, "aso_vencimento", None):
-                    venc = t.aso_vencimento if isinstance(t.aso_vencimento, date) \
-                        else t.aso_vencimento.date()
-                    emis = getattr(t, "aso_emissao", None)
+                # ASO — campos reais do model Trabalhador: aso_data_inicial / aso_validade
+                if getattr(t, "aso_validade", None):
+                    venc = t.aso_validade if isinstance(t.aso_validade, date) \
+                        else t.aso_validade.date()
+                    emis = getattr(t, "aso_data_inicial", None)
                     dias = (venc - hoje).days
                     self._dados.append({
                         "nome": t.nome, "empresa": emp_nome,
@@ -581,33 +581,22 @@ class AbaColaboradores(QWidget):
                         "status":     _calcular_status(dias),
                     })
 
-                # Integração
-                if getattr(t, "integracao_vencimento", None):
-                    venc = t.integracao_vencimento if isinstance(t.integracao_vencimento, date) \
-                        else t.integracao_vencimento.date()
-                    emis = getattr(t, "integracao_emissao", None)
-                    dias = (venc - hoje).days
-                    self._dados.append({
-                        "nome": t.nome, "empresa": emp_nome,
-                        "tipo": "Integração",
-                        "emissao":    emis.strftime("%d/%m/%Y") if emis else "—",
-                        "vencimento": venc.strftime("%d/%m/%Y"),
-                        "dias":       dias,
-                        "status":     _calcular_status(dias),
-                    })
-
-                # Treinamentos (pode ser lista)
+                # Integração (NR-01) e demais Treinamentos — vêm do model
+                # Treinamento (trabalhador_id, nr_nome, data_realizacao,
+                # data_validade). NR-01 é tratado como "Integração".
                 treinamentos = getattr(t, "treinamentos", None) or []
                 for tr in treinamentos:
-                    venc_tr = getattr(tr, "vencimento", None)
+                    venc_tr = getattr(tr, "data_validade", None)
                     if not venc_tr:
                         continue
                     venc_tr = venc_tr if isinstance(venc_tr, date) else venc_tr.date()
-                    emis_tr = getattr(tr, "emissao", None)
+                    emis_tr = getattr(tr, "data_realizacao", None)
                     dias_tr = (venc_tr - hoje).days
+                    is_integracao = getattr(tr, "is_integracao", False)
+                    tipo_label = "Integração" if is_integracao else f"Treinamento · {getattr(tr, 'nr_nome', '')}"
                     self._dados.append({
                         "nome": t.nome, "empresa": emp_nome,
-                        "tipo": f"Treinamento · {getattr(tr, 'nome', '')}",
+                        "tipo": tipo_label,
                         "emissao":    emis_tr.strftime("%d/%m/%Y") if emis_tr else "—",
                         "vencimento": venc_tr.strftime("%d/%m/%Y"),
                         "dias":       dias_tr,
@@ -858,17 +847,21 @@ class AbaEmpresas(QWidget):
 
             session = get_session()
             try:
-                empresas = session.query(Empresa).filter(Empresa.ativa == True).all()
+                # Empresa não tem campo "ativa" — usa o campo real "status"
+                # (default "ativo"), conforme o model app/models/empresa.py.
+                empresas = session.query(Empresa).filter(Empresa.status == "ativo").all()
             finally:
                 session.close()
 
             hoje = date.today()
             self._dados = []
 
+            # Campos reais do model Empresa: <prefixo>_data_inicial /
+            # <prefixo>_validade (não "_emissao"/"_vencimento").
             _campos = [
-                ("pgr_vencimento",    "pgr_emissao",    "PGR"),
-                ("pcmso_vencimento",  "pcmso_emissao",  "PCMSO"),
-                ("apolice_vencimento","apolice_emissao", "Apólice Seg. Vida"),
+                ("pgr_validade",     "pgr_data_inicial",     "PGR"),
+                ("pcmso_validade",   "pcmso_data_inicial",   "PCMSO"),
+                ("apolice_validade", "apolice_data_inicial", "Apólice Seg. Vida"),
             ]
 
             for emp in empresas:

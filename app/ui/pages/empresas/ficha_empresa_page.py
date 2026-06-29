@@ -188,12 +188,16 @@ class ToggleTipo:
 class FichaEmpresaPage(QWidget):
     voltar = Signal()
 
-    def __init__(self, empresa=None, setor_nome: str = ""):
+    def __init__(self, empresa=None, setor_nome: str = "", somente_leitura: bool = False):
         super().__init__()
         self._arquivos = {}
         self._cards_validade = {}
         self._cards_checkbox = {}
         self.setor_nome = setor_nome
+        # Regra do cliente: só admin cria/edita empresa e
+        # adiciona/edita/exclui colaborador. tecnico/operador só
+        # consultam (busca já funciona normalmente).
+        self._somente_leitura = somente_leitura
 
         self._empresa_id    = empresa.id           if empresa else None
         self.empresa_nome   = empresa.razao_social if empresa else ""
@@ -264,6 +268,7 @@ class FichaEmpresaPage(QWidget):
 
         btn_salvar = self._btn_acao("  Salvar", "fa5s.save", "#16A34A", "white", "white")
         btn_salvar.clicked.connect(self._on_salvar)
+        btn_salvar.setVisible(not self._somente_leitura)
         btn_colab = self._btn_acao("  Colaborador", "fa5s.user-plus", "#2563EB", "white", "white")
         btn_colab.clicked.connect(self._on_novo_colaborador)
         header.addWidget(btn_colab)
@@ -404,6 +409,7 @@ class FichaEmpresaPage(QWidget):
         btn_novo.setIcon(qta.icon("fa5s.user-plus", color="white"))
         btn_novo.setIconSize(QSize(13, 13))
         btn_novo.setCursor(Qt.PointingHandCursor)
+        btn_novo.setVisible(not self._somente_leitura)
         btn_novo.setStyleSheet("""
             QPushButton { background: #2563EB; color: white; border: none; border-radius: 8px; padding: 8px 16px; font-weight: bold; font-size: 13px; }
             QPushButton:hover { background: #1D4ED8; }
@@ -455,17 +461,22 @@ class FichaEmpresaPage(QWidget):
             QMenu::item:selected { background: #EFF6FF; color: #2563EB; }
             QMenu::separator { height: 1px; background: #F1F5F9; margin: 4px 8px; }
         """)
-        acao_editar   = QAction(qta.icon("fa5s.edit",       color="#2563EB"), "  Editar",   self)
-        acao_inativar = QAction(qta.icon("fa5s.user-slash", color="#D97706"), "  Inativar", self)
-        acao_excluir  = QAction(qta.icon("fa5s.trash-alt",  color="#DC2626"), "  Excluir",  self)
+        acao_editar   = QAction(qta.icon("fa5s.edit",       color="#2563EB"),
+                                 "  Visualizar" if self._somente_leitura else "  Editar", self)
         acao_editar.triggered.connect(lambda: self._editar_colab(colab_id))
-        acao_inativar.triggered.connect(lambda: self._inativar_colab(colab_id, nome))
-        acao_excluir.triggered.connect(lambda: self._excluir_colab(colab_id, nome))
         menu.addAction(acao_editar)
-        menu.addSeparator()
-        menu.addAction(acao_inativar)
-        menu.addSeparator()
-        menu.addAction(acao_excluir)
+
+        # Inativar/Excluir são ações destrutivas — restritas a admin.
+        # Regra do cliente: tecnico/operador só consultam.
+        if not self._somente_leitura:
+            acao_inativar = QAction(qta.icon("fa5s.user-slash", color="#D97706"), "  Inativar", self)
+            acao_excluir  = QAction(qta.icon("fa5s.trash-alt",  color="#DC2626"), "  Excluir",  self)
+            acao_inativar.triggered.connect(lambda: self._inativar_colab(colab_id, nome))
+            acao_excluir.triggered.connect(lambda: self._excluir_colab(colab_id, nome))
+            menu.addSeparator()
+            menu.addAction(acao_inativar)
+            menu.addSeparator()
+            menu.addAction(acao_excluir)
         menu.exec(self.tabela_colabs.viewport().mapToGlobal(pos))
 
     def _editar_colab(self, colab_id: int):

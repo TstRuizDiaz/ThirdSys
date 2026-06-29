@@ -22,6 +22,12 @@ class MainWindow(QMainWindow):
         self._colab_page     = None
         self._portaria_page  = None
         self._colab_origem   = "lista"
+
+        from app.core.permissions import eh_admin, role_label, menu_permitido
+        self._eh_admin   = eh_admin(usuario)
+        self._role_label = role_label(usuario)
+        self._menu        = menu_permitido(usuario)
+
         self.setWindowTitle("ThirdSys — Gestão de Terceiros")
         self.setMinimumSize(1280, 720)
         self._setup_ui()
@@ -43,32 +49,66 @@ class MainWindow(QMainWindow):
         self.dashboard = DashboardPage()
         self.dashboard.navegar.connect(self.navegar_para)
 
-        self.setores = SetoresPage()
+        self.setores = SetoresPage(user_role=self._role_label)
         self.setores.navegar.connect(self.navegar_para)
         self.setores.voltar.connect(lambda: self.navegar_para("dashboard"))
 
-        self._colabs_list = ColaboradoresListPage()
-
-        from app.ui.pages.relatorios_page import RelatoriosPage
-        self._relatorios = RelatoriosPage()
+        self._colabs_list = ColaboradoresListPage(somente_leitura=not self._eh_admin)
 
         self.pages = {
             "dashboard":     self.dashboard,
             "setores":       self.setores,
             "trabalhadores": self._colabs_list,
-            "relatorios":    self._relatorios,
-            "documentos":    self._placeholder("Documentos"),
-            "vencimentos":   self._placeholder("Vencimentos"),
         }
+
+        # Vencimentos e Relatórios: admin e tecnico têm acesso, operador
+        # não (regra do cliente — ver app/core/permissions.py).
+        if "vencimentos" in self._menu:
+            from app.ui.pages.relatorios_page import RelatoriosPage
+            self._relatorios = RelatoriosPage()
+
+            from app.ui.pages.vencimentos_page import VencimentosPage
+            self._vencimentos = VencimentosPage()
+
+            self.pages["relatorios"]  = self._relatorios
+            self.pages["vencimentos"] = self._vencimentos
+        else:
+            self._relatorios  = None
+            self._vencimentos = None
 
         for page in self.pages.values():
             self.stack.addWidget(page)
 
         self.setCentralWidget(central)
-        self.navegar_para("dashboard")
+        # Landing page: dashboard pra todo mundo agora (admin, tecnico e
+        # operador têm Dashboard no menu).
+        self.navegar_para("dashboard" if "dashboard" in self._menu else "trabalhadores")
 
     def navegar_para(self, chave: str):
         print(f"DEBUG navegar_para: {chave}")
+
+        # Defesa extra: mesmo que os botões estejam escondidos pra
+        # quem não deveria ver, qualquer rota que crie/edite/exclua é
+        # bloqueada aqui também (só admin) — e Vencimentos/Relatórios
+        # ficam restritos a quem tem essas chaves no menu permitido
+        # (admin e tecnico; operador não). Não depende só da UI ter
+        # escondido o botão certo em algum lugar.
+        _ROTAS_ADMIN_PREFIXO = ("nova_empresa", "novo_colaborador:")
+        if not self._eh_admin and any(chave.startswith(p) for p in _ROTAS_ADMIN_PREFIXO):
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, "Acesso restrito",
+                "Essa ação está disponível apenas para administradores."
+            )
+            return
+
+        if chave in ("vencimentos", "relatorios") and chave not in self._menu:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, "Acesso restrito",
+                "Essa tela não está disponível para o seu perfil."
+            )
+            return
 
         if chave == "empresas":
             chave = "setores"
@@ -82,6 +122,11 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self.pages["relatorios"])
             self.sidebar.set_ativo("relatorios")
             self._relatorios.carregar_dados()
+
+        elif chave == "vencimentos":
+            self.stack.setCurrentWidget(self.pages["vencimentos"])
+            self.sidebar.set_ativo("vencimentos")
+            self._vencimentos.carregar_dados()
 
         elif chave in self.pages:
             self.stack.setCurrentWidget(self.pages[chave])
@@ -127,7 +172,18 @@ class MainWindow(QMainWindow):
     def _abrir_portaria(self):
         from app.ui.pages.portaria_page import PortariaPage
 
-        if self._portaria_page is not None and self._portaria_page.isVisible():
+        # Verifica se a janela existe E se o objeto Qt por trás dela ainda
+        # está vivo. Se a janela foi fechada/destruída, acessar isVisible()
+        # nela gera RuntimeError ("wrapped C/C++ object has been deleted") —
+        # por isso o try/except: se acontecer, simplesmente cria de novo.
+        portaria_valida = False
+        if self._portaria_page is not None:
+            try:
+                portaria_valida = self._portaria_page.isVisible()
+            except RuntimeError:
+                self._portaria_page = None
+
+        if portaria_valida:
             self._portaria_page.raise_()
             self._portaria_page.activateWindow()
         else:
@@ -159,7 +215,7 @@ class MainWindow(QMainWindow):
             self.stack.removeWidget(self._empresas_page)
             self._empresas_page.deleteLater()
 
-        self._empresas_page = EmpresasPage(setor, empresas)
+        self._empresas_page = EmpresasPage(setor, empresas, user_role=self._role_label)
         self._empresas_page.voltar.connect(lambda: self.navegar_para("setores"))
         self._empresas_page.navegar.connect(self.navegar_para)
         self.stack.addWidget(self._empresas_page)
@@ -179,7 +235,9 @@ class MainWindow(QMainWindow):
             self.stack.removeWidget(self._ficha_page)
             self._ficha_page.deleteLater()
 
-        self._ficha_page = FichaEmpresaPage(empresa=empresa, setor_nome=setor_nome)
+        self._ficha_page = FichaEmpresaPage(
+            empresa=empresa, setor_nome=setor_nome, somente_leitura=not self._eh_admin
+        )
         self._ficha_page.voltar.connect(
             lambda: self._abrir_empresas_setor(setor_nome)
         )
@@ -201,7 +259,9 @@ class MainWindow(QMainWindow):
             self.stack.removeWidget(self._colab_page)
             self._colab_page.deleteLater()
 
-        self._colab_page   = TrabalhadorFormPage(empresa=empresa, trabalhador=colaborador)
+        self._colab_page = TrabalhadorFormPage(
+            empresa=empresa, trabalhador=colaborador, somente_leitura=not self._eh_admin
+        )
         self._colab_origem = origem
 
         def _voltar():

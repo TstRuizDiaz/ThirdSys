@@ -45,8 +45,11 @@ _MENU_STYLE = """
 
 class ColaboradoresListPage(QWidget):
 
-    def __init__(self):
+    def __init__(self, somente_leitura: bool = False):
         super().__init__()
+        # Regra do cliente: tecnico/operador só consultam e
+        # liberam/bloqueiam — não editam, inativam nem excluem.
+        self._somente_leitura = somente_leitura
         self.setStyleSheet("background-color: #F0F4F8;")
         self._colabs_cache = []
         self._setup_ui()
@@ -323,13 +326,17 @@ class ColaboradoresListPage(QWidget):
         acao_ver = QAction(
             qta.icon("fa5s.eye", color="#2563EB"), "  Ver ficha completa", self
         )
-        acao_editar = QAction(
-            qta.icon("fa5s.user-edit", color="#2563EB"), "  Editar colaborador", self
-        )
         acao_ver.triggered.connect(lambda: self._on_ver(colab_id, empresa_id))
-        acao_editar.triggered.connect(lambda: self._on_editar(colab_id, empresa_id))
         menu.addAction(acao_ver)
-        menu.addAction(acao_editar)
+
+        # Editar é ação de escrita — restrita a admin. tecnico/operador
+        # já conseguem visualizar tudo via "Ver ficha completa" acima.
+        if not self._somente_leitura:
+            acao_editar = QAction(
+                qta.icon("fa5s.user-edit", color="#2563EB"), "  Editar colaborador", self
+            )
+            acao_editar.triggered.connect(lambda: self._on_editar(colab_id, empresa_id))
+            menu.addAction(acao_editar)
         menu.addSeparator()
 
         # ── Documentos ────────────────────────────────────────────────────────
@@ -345,7 +352,9 @@ class ColaboradoresListPage(QWidget):
         menu.addAction(acao_trein)
         menu.addSeparator()
 
-        # ── Status ────────────────────────────────────────────────────────────
+        # ── Status (liberar/bloquear) ─────────────────────────────────────────
+        # Regra do cliente: liberar/bloquear continua disponível para
+        # tecnico/operador — é a função principal da Portaria.
         if bloqueado:
             acao_liberar = QAction(
                 qta.icon("fa5s.unlock", color="#16A34A"), "  Liberar colaborador", self
@@ -359,19 +368,21 @@ class ColaboradoresListPage(QWidget):
             acao_bloquear.triggered.connect(lambda: self._on_bloquear(colab_id, nome))
             menu.addAction(acao_bloquear)
 
-        acao_inativar = QAction(
-            qta.icon("fa5s.user-slash", color="#D97706"), "  Inativar colaborador", self
-        )
-        acao_inativar.triggered.connect(lambda: self._on_inativar(colab_id, nome))
-        menu.addAction(acao_inativar)
-        menu.addSeparator()
+        # Inativar/Excluir são ações destrutivas — restritas a admin.
+        if not self._somente_leitura:
+            acao_inativar = QAction(
+                qta.icon("fa5s.user-slash", color="#D97706"), "  Inativar colaborador", self
+            )
+            acao_inativar.triggered.connect(lambda: self._on_inativar(colab_id, nome))
+            menu.addAction(acao_inativar)
+            menu.addSeparator()
 
-        # ── Zona de perigo ────────────────────────────────────────────────────
-        acao_excluir = QAction(
-            qta.icon("fa5s.trash-alt", color="#DC2626"), "  Excluir permanentemente", self
-        )
-        acao_excluir.triggered.connect(lambda: self._on_excluir(colab_id, nome))
-        menu.addAction(acao_excluir)
+            # ── Zona de perigo ────────────────────────────────────────────────
+            acao_excluir = QAction(
+                qta.icon("fa5s.trash-alt", color="#DC2626"), "  Excluir permanentemente", self
+            )
+            acao_excluir.triggered.connect(lambda: self._on_excluir(colab_id, nome))
+            menu.addAction(acao_excluir)
 
         menu.exec(self.tabela.viewport().mapToGlobal(pos))
 

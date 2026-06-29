@@ -1,42 +1,24 @@
+"""
+app/core/api_client.py
+─────────────────────────────────────────────────────────────────────────────
+Cliente HTTP que fala com o ThirdSys Server (app/server/api_server.py),
+que roda numa única máquina da rede local (ex.: a da portaria, 24h ligada).
+
+IMPORTANTE: troque API_BASE_URL pelo IP local da máquina que está rodando
+o ThirdSysServer. Para descobrir esse IP, na máquina-servidor execute no
+cmd: ipconfig  (procure por "Endereço IPv4" da rede local).
+─────────────────────────────────────────────────────────────────────────────
+"""
+
 import requests
 from dataclasses import dataclass
 from typing import Optional
 
-API_BASE_URL = "https://sua-api.com"  # ← trocar pela URL real quando a API estiver pronta
-
-# ─── MOCK LOCAL (remover quando a API estiver pronta) ───────────────────────
-MOCK_USUARIOS = {
-    "14049467008387": {
-        "email": "admin@empresa.com",
-        "senha": "123456",
-        "usuario": {
-            "id": 1,
-            "nome": "Administrador",
-            "email": "admin@empresa.com",
-            "cnpj": "14049467008387",
-        }
-    }
-}
-
-def _mock_login(cnpj: str, email: str, senha: str) -> "LoginResult":
-    cnpj_limpo = "".join(filter(str.isdigit, cnpj))
-    cadastro = MOCK_USUARIOS.get(cnpj_limpo)
-
-    if not cadastro:
-        return LoginResult(success=False, erro="CNPJ não cadastrado no sistema.")
-    if cadastro["email"] != email:
-        return LoginResult(success=False, erro="E-mail inválido para este CNPJ.")
-    if cadastro["senha"] != senha:
-        return LoginResult(success=False, erro="Senha incorreta.")
-
-    return LoginResult(
-        success=True,
-        token="mock-token-dev-123",
-        usuario=cadastro["usuario"],
-    )
-
-USE_MOCK = True  # ← mudar para False quando a API estiver pronta
-# ────────────────────────────────────────────────────────────────────────────
+# ── Endereço do servidor central na rede local da empresa ──────────────────
+# Trocar pelo IP fixo da máquina-servidor (ex.: a da portaria) quando for
+# para produção. Em desenvolvimento, pode apontar para 127.0.0.1 se o
+# servidor estiver rodando no próprio notebook.
+API_BASE_URL = "http://127.0.0.1:8000"
 
 
 @dataclass
@@ -47,40 +29,45 @@ class LoginResult:
     erro: Optional[str] = None
 
 
-def login_api(cnpj: str, email: str, senha: str) -> LoginResult:
-    """Autentica na API remota com CNPJ + e-mail + senha."""
-
-    if USE_MOCK:
-        return _mock_login(cnpj, email, senha)
-
+def login_api(username: str, senha: str) -> LoginResult:
+    """Autentica contra o ThirdSys Server (rede local)."""
     try:
-        cnpj_limpo = "".join(filter(str.isdigit, cnpj))
-
         response = requests.post(
             f"{API_BASE_URL}/api/auth/login",
-            json={
-                "cnpj": cnpj_limpo,
-                "email": email,
-                "password": senha,
-            },
-            timeout=10,
+            json={"username": username, "senha": senha},
+            timeout=5,
         )
 
         if response.status_code == 200:
             data = response.json()
             return LoginResult(
-                success=True,
+                success=data.get("success", False),
                 token=data.get("token"),
-                usuario=data.get("user") or data.get("usuario"),
+                usuario=data.get("usuario"),
+                erro=data.get("erro"),
             )
-        elif response.status_code == 401:
-            return LoginResult(success=False, erro="CNPJ, e-mail ou senha inválidos.")
         else:
             return LoginResult(success=False, erro=f"Erro no servidor ({response.status_code}).")
 
     except requests.ConnectionError:
-        return LoginResult(success=False, erro="Sem conexão com o servidor. Verifique sua internet.")
+        return LoginResult(
+            success=False,
+            erro=(
+                "Não foi possível conectar ao servidor do ThirdSys.\n"
+                "Verifique se o computador-servidor está ligado e conectado "
+                "à rede da empresa."
+            ),
+        )
     except requests.Timeout:
         return LoginResult(success=False, erro="Servidor demorou para responder. Tente novamente.")
     except Exception as e:
         return LoginResult(success=False, erro=f"Erro inesperado: {e}")
+
+
+def checar_servidor_online() -> bool:
+    """Pode ser usado na splash screen para avisar se o servidor está offline."""
+    try:
+        r = requests.get(f"{API_BASE_URL}/api/health", timeout=3)
+        return r.status_code == 200
+    except Exception:
+        return False

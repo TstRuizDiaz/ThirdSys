@@ -18,12 +18,28 @@ import json
 import os
 import sys
 
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+# NOTA: o import do PySide6 foi movido para dentro das funções que
+# realmente abrem janelas (garantir_pasta_base, trocar_pasta_base).
+# Isso permite que módulos que só precisam de configuração (como o
+# servidor da API, app/server/api_server.py) importem settings.py sem
+# precisar ter PySide6 instalado.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Caminhos fixos da aplicação (não dependem de escolha do usuário)
 # ─────────────────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).parent.parent.parent
+# CORREÇÃO: Path(__file__).parent... funciona certo rodando "python
+# main.py" direto do código-fonte, mas dentro do .exe empacotado
+# (PyInstaller) o __file__ desse módulo aponta para dentro da pasta
+# interna do bundle, não para a pasta onde o ThirdSys.exe está. Isso
+# fazia o app criar/abrir um banco de dados NOVO e VAZIO a cada vez,
+# diferente do banco real usado em desenvolvimento — por isso erros como
+# "no such table: trabalhadores" no .exe mesmo com o banco populado.
+# getattr(sys, 'frozen', False) é True quando o código está rodando
+# dentro de um .exe gerado pelo PyInstaller.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent.parent.parent
 
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -49,7 +65,49 @@ _CONFIG_PADRAO = {
     # Só recebe valor real depois que o usuário escolhe a pasta
     # (ver garantir_pasta_base). Enquanto for None, é sinal de 1ª execução.
     "docs_base_dir": None,
+    # Configuração de e-mail (notificações de vencimento). Preenchida pela
+    # tela de Configurações de Notificações. Sem isso configurado, o
+    # sistema continua funcionando normalmente — só não envia e-mail.
+    "smtp": {
+        "host": "",
+        "porta": 587,
+        "usuario": "",
+        "senha": "",
+        "remetente_nome": "ThirdSys — Vencimentos",
+        "destinatarios": [],   # lista de e-mails que recebem o alerta
+        "ativo": False,
+    },
+    # Data (YYYY-MM-DD) do último envio automático de e-mail de
+    # vencimentos, pra não mandar mais de uma vez por dia.
+    "ultimo_envio_email_vencimentos": None,
 }
+
+
+def obter_smtp_config() -> dict:
+    cfg = carregar_config()
+    return cfg.get("smtp", _CONFIG_PADRAO["smtp"]).copy()
+
+
+def salvar_smtp_config(host: str, porta: int, usuario: str, senha: str,
+                        remetente_nome: str, destinatarios: list, ativo: bool):
+    cfg = carregar_config()
+    cfg["smtp"] = {
+        "host": host, "porta": porta, "usuario": usuario, "senha": senha,
+        "remetente_nome": remetente_nome, "destinatarios": destinatarios,
+        "ativo": ativo,
+    }
+    salvar_config(cfg)
+
+
+def obter_ultimo_envio_email() -> str | None:
+    return carregar_config().get("ultimo_envio_email_vencimentos")
+
+
+def marcar_envio_email_hoje():
+    from datetime import date
+    cfg = carregar_config()
+    cfg["ultimo_envio_email_vencimentos"] = date.today().isoformat()
+    salvar_config(cfg)
 
 
 def carregar_config() -> dict:
@@ -86,6 +144,8 @@ def garantir_pasta_base(parent=None) -> Path:
     Deve ser chamada UMA ÚNICA VEZ, logo após criar o QApplication, antes
     de abrir splash/login/main window.
     """
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
     cfg = carregar_config()
     salvo = cfg.get("docs_base_dir")
 
@@ -128,6 +188,8 @@ def trocar_pasta_base(parent=None) -> Path | None:
     Permite trocar a pasta-base depois (ex: botão em uma tela de
     Configurações). Retorna None se o usuário cancelar.
     """
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
     nova = QFileDialog.getExistingDirectory(
         parent, "Selecione a nova pasta para o ThirdSys"
     )

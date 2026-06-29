@@ -2271,13 +2271,40 @@ class PortariaPage(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._colab_atual = None; self._status_ok = False
-        self.setWindowTitle("ThirdSys — Portaria / Controle de Acesso"); self.setWindowFlag(Qt.Window)
+        self.setWindowTitle("ThirdSys — Portaria / Controle de Acesso")
+        # Qt.Window: janela independente (própria barra de título, própria
+        # entrada na barra de tarefas), em vez de ficar "presa" dentro do
+        # layout das outras páginas.
+        # WindowMinimizeButtonHint / WindowMaximizeButtonHint: sem essas
+        # duas flags, QDialog mostra só o botão de fechar — o usuário não
+        # conseguia maximizar a janela manualmente, o que deixava a tela
+        # pequena demais para a tabela de movimentação e causava a sensação
+        # de "travar" ao usar com a janela no tamanho padrão.
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
         self.setMinimumSize(1180, 700)
         screen = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1400, screen.width()-80), min(820, screen.height()-80))
         self.move((screen.width()-self.width())//2, (screen.height()-self.height())//2)
         self.setStyleSheet(f"background-color: {COR_BG}; QLabel {{ border: none; background: transparent; }} QWidget {{ border: none; }}")
         self._setup_ui(); self._iniciar_relogio(); self._carregar_dashboard()
+        # Abre já maximizada — tela da portaria é usada o dia inteiro,
+        # então faz sentido ocupar a tela toda por padrão. F11 alterna
+        # para tela cheia de verdade (sem nem a barra de título).
+        self.showMaximized()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_F11:
+            if self.isFullScreen():
+                self.showMaximized()
+            else:
+                self.showFullScreen()
+        else:
+            super().keyPressEvent(event)
 
     def _setup_ui(self):
         raiz = QHBoxLayout(self); raiz.setContentsMargins(0, 0, 0, 0); raiz.setSpacing(0)

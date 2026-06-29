@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QPalette, QColor, QIcon
 from PySide6.QtCore import Qt
 
-from app.core.settings import garantir_pasta_base
+from app.core.settings import garantir_pasta_base, carregar_config
 from app.core.session_manager import carregar_sessao, salvar_sessao
 from app.ui.splash_screen import SplashScreen
 from app.ui.login_window import LoginWindow
@@ -29,12 +29,14 @@ def main():
             app.setWindowIcon(QIcon(icon_path))
 
         # ── Pasta-base de documentos ────────────────────────────────────────
-        # Na 1ª execução, abre o explorador de arquivos para o usuário
-        # escolher onde o ThirdSys vai guardar tudo (empresas, colaboradores,
-        # documentos e treinamentos). Nas execuções seguintes é transparente.
-        # Chamado ANTES de splash/login: se o usuário cancelar, o app encerra
-        # limpo sem nem mostrar essas telas.
         garantir_pasta_base()
+
+        # Garante que o banco de dados tem as tabelas criadas. create_all()
+        # é idempotente — se a tabela já existe, não faz nada; se não
+        # existe (1ª execução numa máquina nova, ou .exe rodando numa
+        # pasta diferente), cria sem apagar dados existentes.
+        from app.core.database import criar_tabelas
+        criar_tabelas()
 
         palette = QPalette()
         palette.setColor(QPalette.Window,          QColor("#F0F4F8"))
@@ -55,16 +57,19 @@ def main():
 
         _refs = {}
 
+        # CNPJ da própria empresa (config local), usado para exibir no
+        # dashboard. Não tem relação com a autenticação do usuário.
+        cnpj_empresa = carregar_config().get("empresa_cnpj", "")
+
         def apos_splash():
             try:
                 splash.hide()
                 sessao = carregar_sessao()
 
-                if sessao and sessao.get("token") and sessao.get("cnpj"):
+                if sessao and sessao.get("token") and sessao.get("usuario_id"):
                     _abrir_main(
-                        usuario=sessao,
+                        usuario={"id": sessao["usuario_id"], "username": sessao.get("username")},
                         token=sessao["token"],
-                        cnpj=sessao["cnpj"],
                     )
                 else:
                     _abrir_login()
@@ -81,16 +86,14 @@ def main():
             def on_aceito():
                 usuario = login.usuario_logado  # dict
                 token   = login.token
-                cnpj    = login.cnpj_logado
 
                 salvar_sessao(
                     usuario_id=usuario.get("id"),
-                    email=usuario.get("email", ""),
+                    username=usuario.get("username", ""),
                     token=token,
-                    cnpj=cnpj,
                 )
                 login.hide()
-                _abrir_main(usuario=usuario, token=token, cnpj=cnpj)
+                _abrir_main(usuario=usuario, token=token)
 
             def on_rejeitado():
                 sys.exit(0)
@@ -101,8 +104,8 @@ def main():
             login.raise_()
             login.activateWindow()
 
-        def _abrir_main(usuario, token, cnpj):
-            window = MainWindow(usuario=usuario, token=token, cnpj=cnpj)
+        def _abrir_main(usuario, token):
+            window = MainWindow(usuario=usuario, token=token, cnpj=cnpj_empresa)
             _refs["main"] = window
             window.show()
             window.raise_()
@@ -110,6 +113,11 @@ def main():
             if "splash" in _refs:
                 _refs["splash"].deleteLater()
                 del _refs["splash"]
+
+            # Checa (em background, sem travar a UI) se já mandou o
+            # e-mail diário de vencimentos hoje; se não, manda agora.
+            from app.ui.components.sino_notificacoes import verificar_envio_diario_em_background
+            verificar_envio_diario_em_background()
 
         splash = SplashScreen(on_finalizado=apos_splash)
         _refs["splash"] = splash
